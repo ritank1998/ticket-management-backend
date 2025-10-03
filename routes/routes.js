@@ -414,7 +414,7 @@ export const assignProjectToUser = async (req, res) => {
   }
 
   try {
-    // Verify if user exists
+    // 1. Verify user exists
     const { data: existingUser, error: userError } = await supabase
       .from("users")
       .select("*")
@@ -425,11 +425,22 @@ export const assignProjectToUser = async (req, res) => {
       return res.status(404).json({ error: "User not found with given user_id" });
     }
 
-    // Update project_id
+    // 2. Verify project exists
+    const { data: existingProject, error: projectError } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("project_id", project_id)
+      .single();
+
+    if (projectError || !existingProject) {
+      return res.status(404).json({ error: "Project not found with given project_id" });
+    }
+
+    // 3. Assign project to user
     const { data, error } = await supabase
       .from("users")
       .update({ project_id })
-      .eq("user_id", userId) // ✅ fixed here
+      .eq("user_id", userId)
       .select("*");
 
     if (error) {
@@ -439,7 +450,7 @@ export const assignProjectToUser = async (req, res) => {
 
     return res.status(200).json({
       message: "Project assigned to user successfully",
-      user: data[0], // select() returns array
+      user: data[0],
     });
   } catch (err) {
     console.error("Unexpected error:", err);

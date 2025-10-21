@@ -510,53 +510,68 @@ export const getAllTickets = async (req, res) => {
 export const getTicketsForUser = async (req, res) => {
   try {
     const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
 
-    if (!email) {
-      return res.status(400).json({ error: "Email is required" });
-    }
-
-    // 1️⃣ Fetch user info
+    // 1️⃣ Get user
     const { data: user, error: userError } = await supabase
       .from("users")
       .select("user_id, role_id")
       .eq("email", email)
       .single();
+    if (userError || !user) return res.status(404).json({ error: "User not found" });
 
-    if (userError || !user) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    if (user.role_id === 2) return res.status(403).json({ error: "Access denied" });
 
-    // 2️⃣ Check role_id
-    if (user.role_id === 2) {
-      return res.status(403).json({ error: "User is a normal user, access denied" });
-    }
-
-    // 3️⃣ Fetch tickets assigned to this user
+    // 2️⃣ Fetch tickets with creator, assignee, project names via join
     const { data: tickets, error: ticketsError } = await supabase
       .from("tickets")
       .select(`
         ticket_id,
-        project_id,
         ticket_description,
         status,
         created_at,
         completion_date,
         is_delayed,
         assigned_to,
-        users!assigned_to (name, email)
+        created_by,
+        project_id
       `)
       .eq("assigned_to", user.user_id);
 
-    if (ticketsError) {
-      return res.status(400).json({ error: ticketsError.message });
-    }
+    if (ticketsError) return res.status(400).json({ error: ticketsError.message });
 
-    res.status(200).json(tickets);
+    // 3️⃣ Fetch related names manually
+    const userIds = [
+      ...new Set([...tickets.map(t => t.assigned_to), ...tickets.map(t => t.created_by)])
+    ];
+    const projectIds = [...new Set(tickets.map(t => t.project_id))];
+
+    const { data: users } = await supabase
+      .from("users")
+      .select("user_id, name, email")
+      .in("user_id", userIds);
+
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("project_id, project_name")
+      .in("project_id", projectIds);
+
+    // 4️⃣ Map names to tickets
+    const ticketsWithNames = tickets.map(t => ({
+      ...t,
+      assigned_user_name: users.find(u => u.user_id === t.assigned_to)?.name || null,
+      creator_name: users.find(u => u.user_id === t.created_by)?.name || null,
+      project_name: projects.find(p => p.project_id === t.project_id)?.project_name || null
+    }));
+
+    res.status(200).json(ticketsWithNames);
+
   } catch (err) {
     console.error("Unexpected error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
 
 
 export const getAllProjectsList = async (req, res) => {
@@ -594,8 +609,8 @@ export const testEmail = async (req, res) => {
     const mailOptions = {
       from: "rihina.techorzo@gmail.com",
       to,
-      subject: "Test Email",
-      text: "This is a test email to verify SMTP configuration.",
+      subject: "Team Assignment",
+      text: "Hi Yashas , You have been assigned to Talent-Go Project as a UI/UX Designer",
     };
 
     const response = await transporter.sendMail(mailOptions);

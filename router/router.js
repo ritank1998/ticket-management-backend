@@ -1,5 +1,5 @@
 import express from "express"
-import { addProject, adminLogin, assignProjectToUser, getAllProjects, getAllProjectsList, getAllRoles, getAllStack, getAllTickets, getAllUsersForDropdown, getTicketsForUser, getUsersForDropdown, getUsersForTable, sendEmail, testEmail } from "../routes/routes.js"
+import { addComment, addProject, adminLogin, assignProjectToUser, getAllProjects, getAllProjectsList, getAllRoles, getAllStack, getAllTickets, getAllUsersForDropdown, getTicketComments, getTicketsForUser, getUsersForDropdown, getUsersForTable, sendEmail, testEmail } from "../routes/routes.js"
 import { registerUsers , loginToSystem } from "../routes/routes.js"
 
 const router = express.Router()
@@ -20,4 +20,6 @@ router.get("/allTickets", getAllTickets)
 router.post("/getTicketForUsers", getTicketsForUser)
 router.get("/getprojectlist", getAllProjectsList)
 router.post("/test_email", testEmail)
+router.post("/comment", addComment)
+router.get("/all-comment", getTicketComments)
 export default router

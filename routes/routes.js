@@ -33,39 +33,139 @@ export const verifyToken = (req, res, next) => {
   }
 };
 
-export const sendEmail = async (req, res) => {
-  const { des, stack_id, project_id, status, email } = req.body;
+// export const sendEmail = async (req, res) => {
+//   const { des, stack_id, project_id, status, email } = req.body;
+//   console.log("this is the email" , email)
+//   if (!des || !stack_id || !project_id ) {
+//     return res.status(400).json({ error: "Missing required fields" });
+//   }
 
-  if (!des || !stack_id || !project_id || !email) {
+//   try {
+//     // 1️⃣ Find creator (created_by) from email
+//     const { data: creator, error: creatorErr } = await supabase
+//       .from("users")
+//       .select("user_id")
+//       .eq("email", email)
+//       .single();
+
+//     if (creatorErr || !creator) {
+//       return res.status(400).json({ error: "Creator not found in users table" });
+//     }
+
+//     // 2️⃣ Find assigned_to from stack_id + project_id
+//     const { data: assignee, error: assigneeErr } = await supabase
+//       .from("users")
+//       .select("user_id")
+//       .eq("stack_id", stack_id)
+//       .eq("project_id", project_id)
+//       .limit(1)
+//       .single();
+
+//     if (assigneeErr || !assignee) {
+//       return res.status(400).json({ error: "No user found for given department and project" });
+//     }
+
+//     // 3️⃣ Insert Ticket
+//     const { data: ticket, error: insertError } = await supabase
+//       .from("tickets")
+//       .insert([
+//         {
+//           ticket_description: des,
+//           status: status || "Open",
+//           project_id,
+//           created_by: creator.user_id,
+//           assigned_to: assignee.user_id,
+//         },
+//       ])
+//       .select()
+//       .single();
+
+//     if (insertError) {
+//       console.error("Error saving ticket:", insertError);
+//       return res.status(500).json({ error: insertError.message });
+//     }
+
+//     // 4️⃣ Send Email
+// const mailOptions = {
+//   from: "rihina.techorzo@gmail.com",
+//   to: email,
+//   subject: "New Ticket Created",
+//   // HTML template
+//   html: `
+//     <div style="font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4;">
+//       <table align="center" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; margin: 20px auto; border-radius: 8px; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+//         <tr>
+//           <td style="background-color: #1D4ED8; color: #ffffff; padding: 20px; text-align: center;">
+//             <h1 style="margin: 0; font-size: 24px;">Attention !! </h1>
+//           </td>
+//         </tr>
+//         <tr>
+//           <td style="padding: 20px;">
+//             <p style="font-size: 16px; color: #333;">Hello,</p>
+//             <p style="font-size: 16px; color: #333;">
+//               Your ticket has been created successfully. Here are the details:
+//             </p>
+//             <table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 10px; border-collapse: collapse;">
+//               <tr>
+//                 <td style="padding: 8px; font-weight: bold; color: #555;">Description:</td>
+//                 <td style="padding: 8px; color: #333;">${des}</td>
+//               </tr>
+//               <tr>
+//                 <td style="padding: 8px; font-weight: bold; color: #555;">Status:</td>
+//                 <td style="padding: 8px; color: #333;">${ticket.status}</td>
+//               </tr>
+//             </table>
+//             <p style="margin-top: 20px; font-size: 14px; color: #666;">
+//               You can check your ticket in the dashboard anytime.
+//             </p>
+//             <a href="https://your-app-url.com/tickets" style="display: inline-block; padding: 10px 20px; background-color: #1D4ED8; color: #fff; text-decoration: none; border-radius: 5px; margin-top: 10px;">View Ticket</a>
+//           </td>
+//         </tr>
+//         <tr>
+//           <td style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 12px; color: #999;">
+//             &copy; ${new Date().getFullYear()} Your Company. All rights reserved.
+//           </td>
+//         </tr>
+//       </table>
+//     </div>
+//   `,
+// };
+
+//     await transporter.sendMail(mailOptions);
+
+//     res.status(200).json({
+//       message: "Ticket created and email sent successfully",
+//       ticket,
+//     });
+//   } catch (error) {
+//     console.error("Server error:", error);
+//     res.status(500).json({ error: error.message });
+//   }
+// };
+
+
+export const sendEmail = async (req, res) => {
+  const { des, stack_id, project_id, status } = req.body;
+
+  if (!des || !stack_id || !project_id) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
   try {
-    // 1️⃣ Find creator (created_by) from email
-    const { data: creator, error: creatorErr } = await supabase
+    // 1️⃣ Find assigned user (creator) based on stack_id + project_id
+    const { data: assignedUser, error: userErr } = await supabase
       .from("users")
-      .select("user_id")
-      .eq("email", email)
-      .single();
-
-    if (creatorErr || !creator) {
-      return res.status(400).json({ error: "Creator not found in users table" });
-    }
-
-    // 2️⃣ Find assigned_to from stack_id + project_id
-    const { data: assignee, error: assigneeErr } = await supabase
-      .from("users")
-      .select("user_id")
+      .select("user_id, email")
       .eq("stack_id", stack_id)
       .eq("project_id", project_id)
       .limit(1)
       .single();
 
-    if (assigneeErr || !assignee) {
-      return res.status(400).json({ error: "No user found for given department and project" });
+    if (userErr || !assignedUser) {
+      return res.status(400).json({ error: "No user found for the given stack and project" });
     }
 
-    // 3️⃣ Insert Ticket
+    // 2️⃣ Insert Ticket
     const { data: ticket, error: insertError } = await supabase
       .from("tickets")
       .insert([
@@ -73,8 +173,8 @@ export const sendEmail = async (req, res) => {
           ticket_description: des,
           status: status || "Open",
           project_id,
-          created_by: creator.user_id,
-          assigned_to: assignee.user_id,
+          created_by: assignedUser.user_id, // assign creator automatically
+          assigned_to: assignedUser.user_id,
         },
       ])
       .select()
@@ -85,12 +185,41 @@ export const sendEmail = async (req, res) => {
       return res.status(500).json({ error: insertError.message });
     }
 
-    // 4️⃣ Send Email
+    // 3️⃣ Send Email to the user from users table
     const mailOptions = {
       from: "rihina.techorzo@gmail.com",
-      to: email, // notify creator
+      to: assignedUser.email,
       subject: "New Ticket Created",
-      text: `Your ticket has been created.\n\nDescription: ${des}\nStatus: ${ticket.status}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; background-color:#f4f4f4; padding:20px;">
+          <table width="100%" style="max-width:600px; margin:0 auto; background:#fff; border-radius:8px; overflow:hidden;">
+            <tr style="background-color:#1D4ED8; color:#fff;">
+              <td style="padding:20px; text-align:center;"><h2>New Ticket Created</h2></td>
+            </tr>
+            <tr>
+              <td style="padding:20px; color:#333;">
+                <p>Hello,</p>
+                <p>A new ticket has been created for you. Details are as follows:</p>
+                <table width="100%" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:8px; font-weight:bold;">Description:</td>
+                    <td style="padding:8px;">${des}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px; font-weight:bold;">Status:</td>
+                    <td style="padding:8px;">${ticket.status}</td>
+                  </tr>
+                </table>
+                <p style="margin-top:20px;">You can check your ticket in the dashboard anytime.</p>
+                <a href="https://your-app-url.com/tickets" style="display:inline-block; padding:10px 20px; background:#1D4ED8; color:#fff; text-decoration:none; border-radius:5px;">View Ticket</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:10px; text-align:center; color:#999;">&copy; ${new Date().getFullYear()} Your Company</td>
+            </tr>
+          </table>
+        </div>
+      `,
     };
 
     await transporter.sendMail(mailOptions);
@@ -620,5 +749,104 @@ export const testEmail = async (req, res) => {
   } catch (error) {
     console.error("Error sending email:", error);
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
+
+export const addComment = async (req, res) => {
+  try {
+    const { ticket_id, user_id, comment_text, parent_comment_id = null } = req.body;
+
+    if (!ticket_id || !user_id || !comment_text) {
+      return res.status(400).json({ error: "Missing required fields." });
+    }
+
+    const { data, error } = await supabase
+      .from("comments")
+      .insert([
+        {
+          ticket_id,
+          user_id,
+          comment_text,
+          parent_comment_id,
+        },
+      ])
+      .select();
+
+    if (error) {
+      console.error("Error adding comment:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.status(201).json({
+      message: "Comment added successfully.",
+      comment: data[0],
+    });
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+export const getTicketComments = async (req, res) => {
+  try {
+    // ✅ Read from query, not params
+    const ticket_id = req.query.ticket_id;
+
+    if (!ticket_id) {
+      return res.status(400).json({ error: "Ticket ID is required." });
+    }
+
+    // Fetch comments with user info
+    const { data, error } = await supabase
+      .from("comments")
+      .select(
+        `comment_id, comment_text, created_at, parent_comment_id,
+         users:user_id (user_id, name, email)`
+      )
+      .eq("ticket_id", ticket_id)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching comments:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // 🧩 Nest comments and flatten user object
+    const commentMap = {};
+    const nestedComments = [];
+
+    data.forEach((c) => {
+      commentMap[c.comment_id] = {
+        comment_id: c.comment_id,
+        comment_text: c.comment_text,
+        created_at: c.created_at,
+        parent_comment_id: c.parent_comment_id,
+        user_id: c.users?.user_id,
+        user_email: c.users?.email,
+        user_name: c.users?.name,
+        replies: [],
+      };
+    });
+
+    data.forEach((c) => {
+      if (c.parent_comment_id) {
+        // push as reply
+        commentMap[c.parent_comment_id]?.replies.push(commentMap[c.comment_id]);
+      } else {
+        nestedComments.push(commentMap[c.comment_id]);
+      }
+    });
+
+    res.status(200).json(nestedComments);
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    res.status(500).json({ error: err.message });
   }
 };

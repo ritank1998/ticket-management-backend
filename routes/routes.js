@@ -233,7 +233,7 @@ export const sendEmail = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
-
+ 
 
 export const registerUsers = async (req, res) => {
   try {
@@ -847,6 +847,133 @@ export const getTicketComments = async (req, res) => {
     res.status(200).json(nestedComments);
   } catch (err) {
     console.error("Unexpected error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+export const updateTicketStatus = async (req, res) => {
+  try {
+    const { ticket_id, new_status, changed_by } = req.body;
+
+    // 🔍 Validate required fields
+    if (!ticket_id || !new_status || !changed_by) {
+      return res.status(400).json({ error: "Missing required fields." });
+    }
+
+    // 1️⃣ Fetch the existing ticket to get old status and creator info
+    const { data: existingTicket, error: fetchError } = await supabase
+      .from("tickets")
+      .select("status, created_by, project_id")
+      .eq("ticket_id", ticket_id)
+      .single();
+
+    if (fetchError || !existingTicket) {
+      return res.status(404).json({ error: "Ticket not found." });
+    }
+
+    const old_status = existingTicket.status;
+
+    // 2️⃣ Fetch name of the user who changed status
+    const { data: changer, error: changerError } = await supabase
+      .from("users")
+      .select("name, email")
+      .eq("user_id", changed_by)
+      .single();
+
+    if (changerError || !changer) {
+      console.warn("Could not fetch changer’s name, using ID fallback.");
+    }
+
+    const changerName = changer?.name || `User ${changed_by}`;
+
+    // 3️⃣ Update the ticket status in tickets table
+    const { data: updatedTicket, error: updateError } = await supabase
+      .from("tickets")
+      .update({ status: new_status })
+      .eq("ticket_id", ticket_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error("Error updating ticket status:", updateError);
+      return res.status(500).json({ error: updateError.message });
+    }
+
+    // 4️⃣ Insert a record into ticket_history (with changer’s name)
+    const { error: historyError } = await supabase.from("ticket_history").insert([
+      {
+        ticket_id,
+        old_status,
+        new_status,
+        changed_by_name: changerName,
+        changed_by_id: changed_by,
+      },
+    ]);
+
+    if (historyError) {
+      console.error("Error saving history:", historyError);
+      // Continue anyway
+    }
+
+    // 5️⃣ Fetch creator’s email and name
+    const { data: creator, error: userError } = await supabase
+      .from("users")
+      .select("email, name")
+      .eq("user_id", existingTicket.created_by)
+      .single();
+
+    if (userError || !creator) {
+      console.warn("Could not fetch creator email, skipping email send.");
+    } else {
+      // 6️⃣ Send email notification
+      const mailOptions = {
+        from: "rihina.techorzo@gmail.com",
+        to: creator.email,
+        subject: "Ticket Status Updated",
+        html: `
+          <div style="font-family: Arial, sans-serif; background-color:#f9f9f9; padding:20px;">
+            <table width="100%" style="max-width:600px; margin:0 auto; background:#fff; border-radius:8px; overflow:hidden;">
+              <tr style="background-color:#1D4ED8; color:#fff;">
+                <td style="padding:20px; text-align:center;"><h2>Ticket Status Updated</h2></td>
+              </tr>
+              <tr>
+                <td style="padding:20px; color:#333;">
+                  <p>Hello ${creator.name || ""},</p>
+                  <p>Your ticket’s status has been updated by <b>${changerName}</b>.</p>
+                  <table width="100%" style="border-collapse:collapse;">
+                    <tr>
+                      <td style="padding:8px; font-weight:bold;">Old Status:</td>
+                      <td style="padding:8px;">${old_status}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px; font-weight:bold;">New Status:</td>
+                      <td style="padding:8px; color:#1D4ED8;">${new_status}</td>
+                    </tr>
+                  </table>
+                  <p style="margin-top:20px;">Please log in to your dashboard to view more details.</p>
+                  <a href="https://your-app-url.com/tickets/${ticket_id}" style="display:inline-block; padding:10px 20px; background:#1D4ED8; color:#fff; text-decoration:none; border-radius:5px;">View Ticket</a>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:10px; text-align:center; color:#999;">&copy; ${new Date().getFullYear()} Your Company</td>
+              </tr>
+            </table>
+          </div>
+        `,
+      };
+
+      await transporter.sendMail(mailOptions);
+    }
+
+    // 7️⃣ Respond success
+    res.status(200).json({
+      message: "Ticket status updated and email sent (if applicable).",
+      updatedTicket,
+      changedBy: changerName,
+    });
+  } catch (err) {
+    console.error("Unexpected server error:", err);
     res.status(500).json({ error: err.message });
   }
 };

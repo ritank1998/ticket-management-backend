@@ -977,3 +977,148 @@ export const updateTicketStatus = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+
+export const getProjectUsers = async (req, res) => {
+  try {
+    const { user_id } = req.query; // or req.body if you send POST
+
+    if (!user_id) {
+      return res.status(400).json({ error: "Missing user_id" });
+    }
+
+    // 1️⃣ Get the project_id for this user
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("project_id")
+      .eq("user_id", user_id)
+      .single();
+
+    if (userError || !userData) {
+      console.error("Error fetching user project:", userError);
+      return res.status(404).json({ error: "User or project not found" });
+    }
+
+    const projectId = userData.project_id;
+
+    // 2️⃣ Get all users under that project
+    const { data: projectUsers, error: projectUsersError } = await supabase
+      .from("users")
+      .select("user_id, name, email, project_role")
+      .eq("project_id", projectId);
+
+    if (projectUsersError) {
+      console.error("Error fetching project users:", projectUsersError);
+      return res.status(500).json({ error: "Failed to fetch project users" });
+    }
+
+    // 3️⃣ Return users (excluding self)
+    const filteredUsers = projectUsers.filter((u) => u.user_id !== user_id);
+
+    res.status(200).json({
+      project_id: projectId,
+      users: filteredUsers,
+    });
+  } catch (err) {
+    console.error("Unexpected error in getProjectUsers:", err);
+    res.status(500).json({ error: "Server error: " + err.message });
+  }
+};
+
+
+export const mentionUsers = async (req, res) => {
+  try {
+    const { user_id, comment_text } = req.body;
+
+    if (!user_id || !comment_text) {
+      return res.status(400).json({ error: "Missing user_id or comment_text" });
+    }
+
+    // 1️⃣ Get the project_id of the commenter
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("project_id, name")
+      .eq("user_id", user_id)
+      .single();
+
+    if (userError || !userData) {
+      return res.status(404).json({ error: "User or project not found" });
+    }
+
+    const projectId = userData.project_id;
+    const commenterName = userData.name;
+
+    // 2️⃣ Get all users in the same project
+    const { data: projectUsers, error: projectUsersError } = await supabase
+      .from("users")
+      .select("user_id, name, email")
+      .eq("project_id", projectId);
+
+    if (projectUsersError) {
+      return res.status(500).json({ error: "Failed to fetch project users" });
+    }
+
+    // 3️⃣ Extract mentioned names from comment text (@Name pattern)
+    const mentionMatches = comment_text.match(/@([a-zA-Z0-9_]+)/g) || [];
+    const mentionedNames = mentionMatches.map((m) => m.substring(1).toLowerCase());
+
+    // 4️⃣ Find mentioned users in project (case-insensitive match)
+    const mentionedUsers = projectUsers.filter((u) =>
+      mentionedNames.includes(u.name.toLowerCase())
+    );
+
+    if (mentionedUsers.length === 0) {
+      return res.status(200).json({ message: "No valid mentions found.", notified: [] });
+    }
+
+    // 5️⃣ Send emails to mentioned users
+    for (const user of mentionedUsers) {
+      const mailOptions = {
+        from: "rihina.techorzo@gmail.com",
+        to: user.email,
+        subject: `You were mentioned in a comment`,
+        html: `
+          <div style="font-family: Arial, sans-serif; background-color:#f9f9f9; padding:20px;">
+            <table width="100%" style="max-width:600px; margin:0 auto; background:#fff; border-radius:8px; overflow:hidden;">
+              <tr style="background-color:#1D4ED8; color:#fff;">
+                <td style="padding:20px; text-align:center;">
+                  <h2>You were mentioned in a comment</h2>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:20px; color:#333;">
+                  <p>Hello ${user.name},</p>
+                  <p><b>${commenterName}</b> mentioned you in a comment:</p>
+                  <blockquote style="margin:15px 0; padding:10px 15px; border-left:3px solid #1D4ED8; background:#f1f5ff;">
+                    ${comment_text}
+                  </blockquote>
+                  <p>Please log in to your dashboard to view more details.</p>
+                  <a href="https://your-app-url.com/dashboard" 
+                    style="display:inline-block; padding:10px 20px; background:#1D4ED8; color:#fff; text-decoration:none; border-radius:5px;">
+                    Go to Dashboard
+                  </a>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:10px; text-align:center; color:#999;">
+                  &copy; ${new Date().getFullYear()} Your Company
+                </td>
+              </tr>
+            </table>
+          </div>
+        `,
+      };
+
+      await transporter.sendMail(mailOptions);
+    }
+
+    // 6️⃣ Respond with success
+    res.status(200).json({
+      message: "Mention notifications sent successfully.",
+      notified: mentionedUsers.map((u) => ({ name: u.name, email: u.email })),
+    });
+  } catch (err) {
+    console.error("Error in mentionUsers:", err);
+    res.status(500).json({ error: err.message });
+  }
+};

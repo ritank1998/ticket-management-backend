@@ -1,4 +1,3 @@
-import CircularJson from "circular-json";
 import supabase from "../db/connection/conn.js";
 import nodemailer from "nodemailer";
 import jwt from "jsonwebtoken";
@@ -12,10 +11,7 @@ let transporter = nodemailer.createTransport({
   },
 });
 
-// Function to generate JWT token
-const generateToken = (userId) => {
-  return jwt.sign({ userId }, "ticketManagement21021998", { expiresIn: "2h" });
-};
+
 
 // Middleware to verify JWT token
 export const verifyToken = (req, res, next) => {
@@ -1119,6 +1115,293 @@ export const mentionUsers = async (req, res) => {
     });
   } catch (err) {
     console.error("Error in mentionUsers:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+export const generateOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required." });
+    }
+
+    // 1️⃣ Fetch user by email
+    const { data: user, error: userErr } = await supabase
+      .from("users")
+      .select("user_id, name, email")
+      .eq("email", email)
+      .single();
+
+    if (userErr || !user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    // 2️⃣ Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // 3️⃣ Update OTP in users table
+    const { error: updateErr } = await supabase
+      .from("users")
+      .update({ otp })
+      .eq("user_id", user.user_id)
+      .select()
+      .single();
+
+    if (updateErr) {
+      console.error("Supabase update error:", updateErr);
+      return res.status(500).json({ error: "Failed to save OTP." });
+    }
+
+    // 4️⃣ Send OTP via email
+    const mailOptions = {
+      from: "rihina.techorzo@gmail.com",
+      to: user.email,
+      subject: "Your OTP Code",
+      html: `
+        <div style="font-family: Arial; background:#f4f4f4; padding:20px;">
+          <h2>Your OTP Code</h2>
+          <p>Hello ${user.name},</p>
+          <h1>${otp}</h1>
+          <p>Use this OTP to login.</p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    res.status(200).json({
+      message: "OTP generated and sent successfully.",
+      user: { email: user.email, name: user.name },
+    });
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ error: "Email and OTP are required." });
+    }
+
+    // 1️⃣ Fetch user by email
+    const { data: user, error: userErr } = await supabase
+      .from("users")
+      .select("user_id, email, name, role_id, stack_id, otp")
+      .eq("email", email)
+      .single();
+
+    if (userErr || !user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    // 2️⃣ Check OTP
+    if (user.otp !== otp) {
+      return res.status(400).json({ error: "Invalid OTP." });
+    }
+
+    // 3️⃣ Clear OTP after successful verification
+    const { error: updateErr } = await supabase
+      .from("users")
+      .update({ otp: null })
+      .eq("user_id", user.user_id);
+
+    if (updateErr) {
+      console.error("Failed to clear OTP:", updateErr);
+      // continue anyway
+    }
+
+    // 4️⃣ Generate JWT using same logic as loginToSystem
+    const token = jwt.sign(
+      {
+        email: user.email,
+        role_id: user.role_id,
+        stack_id: user.stack_id,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    // 5️⃣ Return token and user info
+    res.status(200).json({
+      message: "OTP verified successfully.",
+      token,
+      user: {
+        user_id: user.user_id,
+        email: user.email,
+        role_id: user.role_id,
+        stack_id: user.stack_id,
+        name: user.name,
+      },
+    });
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+export const getAdminDashboard = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required." });
+    }
+
+    // 1️⃣ Fetch user by email
+    const { data: user, error: userErr } = await supabase
+      .from("users")
+      .select("user_id, name, email, role_id")
+      .eq("email", email)
+      .single();
+
+    if (userErr || !user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    // 2️⃣ Check if user is admin
+    const { data: roleData, error: roleErr } = await supabase
+      .from("master_roles")
+      .select("role_name")
+      .eq("role_id", user.role_id)
+      .single();
+
+    if (roleErr || !roleData) {
+      return res.status(400).json({ error: "User role not found." });
+    }
+
+    if (roleData.role_name.toLowerCase() !== "admin") {
+      return res.status(403).json({ error: "Access denied. Not an admin." });
+    }
+
+    // 3️⃣ Fetch tickets
+    const { data: allTickets, error: ticketsErr } = await supabase
+      .from("tickets")
+      .select("ticket_id, ticket_description, status, assigned_to, created_by, project_id")
+      .order("created_at", { ascending: false });
+
+    if (ticketsErr) {
+      return res.status(500).json({ error: "Failed to fetch tickets", details: ticketsErr });
+    }
+
+    const totalTickets = allTickets.length;
+
+    // 4️⃣ Tickets by status
+    const statusCount = allTickets.reduce((acc, ticket) => {
+      const s = ticket.status || "Not Set";
+      acc[s] = (acc[s] || 0) + 1;
+      return acc;
+    }, {});
+
+    // 5️⃣ Tickets assigned to users
+    const assignedTickets = {};
+    for (let ticket of allTickets) {
+      if (ticket.assigned_to) {
+        if (!assignedTickets[ticket.assigned_to]) assignedTickets[ticket.assigned_to] = [];
+        assignedTickets[ticket.assigned_to].push(ticket.ticket_id);
+      }
+    }
+
+    // 6️⃣ Fetch assigned user names
+    const assignedUserIds = Object.keys(assignedTickets);
+    let assignedUsers = [];
+    if (assignedUserIds.length > 0) {
+      const { data: usersData } = await supabase
+        .from("users")
+        .select("user_id, name, email")
+        .in("user_id", assignedUserIds);
+
+      assignedUsers = usersData.map(user => ({
+        user_id: user.user_id,
+        name: user.name,
+        email: user.email,
+        tickets_assigned: assignedTickets[user.user_id] || [],
+      }));
+    }
+
+    res.status(200).json({
+      totalTickets,
+      statusCount,
+      assignedUsers,
+      allTickets,
+    });
+  } catch (err) {
+    console.error("Dashboard API error:", err);
+    res.status(500).json({ error: "Server error", details: err.message });
+  }
+};
+
+
+export const getUserTicketsSummary = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    // 1️⃣ Fetch user info
+    const { data: user, error: userError } = await supabase
+      .from("users")
+      .select("user_id, role_id")
+      .eq("email", email)
+      .single();
+
+    if (userError || !user) return res.status(404).json({ error: "User not found" });
+
+    // 2️⃣ Fetch tickets assigned to user
+    const { data: tickets, error: ticketsError } = await supabase
+      .from("tickets")
+      .select(`
+        ticket_id,
+        ticket_description,
+        status,
+        created_at,
+        completion_date,
+        is_delayed,
+        assigned_to,
+        created_by,
+        project_id
+      `)
+      .eq("assigned_to", user.user_id);
+
+    if (ticketsError) return res.status(400).json({ error: ticketsError.message });
+
+    // 3️⃣ Fetch all users and projects involved
+    const userIds = [
+      ...new Set([...tickets.map(t => t.assigned_to), ...tickets.map(t => t.created_by)])
+    ];
+    const projectIds = [...new Set(tickets.map(t => t.project_id))];
+
+    const { data: users } = await supabase
+      .from("users")
+      .select("user_id, name, email")
+      .in("user_id", userIds);
+
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("project_id, project_name")
+      .in("project_id", projectIds);
+
+    // 4️⃣ Map names and project names
+    const ticketsWithDetails = tickets.map(t => ({
+      ...t,
+      assigned_user_name: users.find(u => u.user_id === t.assigned_to)?.name || null,
+      creator_name: users.find(u => u.user_id === t.created_by)?.name || null,
+      project_name: projects.find(p => p.project_id === t.project_id)?.project_name || null
+    }));
+
+    res.status(200).json({
+      totalTickets: tickets.length,
+      tickets: ticketsWithDetails
+    });
+
+  } catch (err) {
+    console.error("Unexpected error:", err);
     res.status(500).json({ error: err.message });
   }
 };
